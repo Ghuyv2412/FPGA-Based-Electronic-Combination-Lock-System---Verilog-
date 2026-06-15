@@ -30,8 +30,6 @@ Gia Huy Vo @Ghuyv2412
 
 ## Verilog Module Architecture
 
-The system utilizes a structured, hierarchical "divide-and-conquer" approach, split into three main operational blocks:
-
 ### 1. Input Preprocessing Block (`TOP_INPUT`)
 * `chia_xung.v` (Clock Divider): Steps down the onboard 50MHz oscillator to generate specialized frequencies: 1kHz for keypad matrix scanning and 100Hz for debouncing logic.
 * `quetkeypad.v` (Keypad Scanner): Executes time-division multiplexed matrix scanning across rows and columns to resolve the exact 4-bit Hex value of pressed keys.
