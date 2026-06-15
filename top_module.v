@@ -1,0 +1,840 @@
+// =======================================================
+// MODULE TOP TỔNG QUÁT (TOP LEVEL)
+// =======================================================
+module top_module (
+    input  wire        clk,        // Mã Pin: PIN_N2 (50MHz)
+    input  wire        reset_n,    // Mã Pin: PIN_G26 (KEY[0])
+    
+    // Keypad I/O
+    (* altera_attribute = "-name WEAK_PULL_UP_RESISTOR ON" *)
+    input  wire [3:0]  col,        // Nối vào GPIO
+    output wire [3:0]  row,        // Nối vào GPIO
+    
+    // 7-Segment Displays
+    output wire [6:0]  HEX3,       
+    output wire [6:0]  HEX2,       
+    output wire [6:0]  HEX1,       
+    output wire [6:0]  HEX0,       
+    
+    // LEDs & Buzzer
+    output wire        LEDG,       // LED Xanh
+    output wire        LEDR,       // LED Đỏ
+    output wire        BUZZER,     // Còi báo động
+    
+    // LCD 16x2
+    output wire [7:0]  LCD_DATA,
+    output wire        LCD_RS,
+    output wire        LCD_RW,
+    output wire        LCD_EN,
+    output wire        LCD_ON,  
+    output wire        LCD_BLON
+);
+
+    wire [3:0]  w_ma_phim;
+    wire        w_co_phim;
+    wire [2:0]  w_state_code;
+    wire        w_door_open;
+    wire        w_alarm;
+    wire [15:0] w_pass_16bit;
+
+    Top_input u_input (
+        .clk        (clk),
+        .reset_n    (reset_n),
+        .col        (col),
+        .row        (row),
+        .co_phim    (w_co_phim),
+        .hex_val    (w_ma_phim)
+    );
+
+    logic_top u_logic (
+        .clk        (clk),
+        .reset_n    (reset_n),
+        .ma_phim    (w_ma_phim),
+        .co_phim    (w_co_phim),
+        .state_code (w_state_code),
+        .door_open  (w_door_open),
+        .alarm      (w_alarm),
+        .pass_16bit (w_pass_16bit)
+    );
+
+    output_top u_output (
+        .clk_50M    (clk),
+        .reset_n    (reset_n),
+        .pass_16bit (w_pass_16bit),
+        .state_code (w_state_code),
+        .door_open  (w_door_open),
+        .alarm      (w_alarm),
+        
+        .HEX3       (HEX3),
+        .HEX2       (HEX2),
+        .HEX1       (HEX1),
+        .HEX0       (HEX0),
+        .LEDG       (LEDG),
+        .LEDR       (LEDR),
+        .BUZZER     (BUZZER),
+        
+        .LCD_DATA   (LCD_DATA),
+        .LCD_RS     (LCD_RS),
+        .LCD_RW     (LCD_RW),
+        .LCD_EN     (LCD_EN),
+        .LCD_ON	    (LCD_ON), 
+		.LCD_BLON	(LCD_BLON)
+    );
+
+endmodule
+
+
+// =======================================================
+// KHỐI 1: XỬ LÝ NGÕ VÀO (KEYPAD INPUT)
+// =======================================================
+module Top_input (
+    input clk,
+    input reset_n,
+    input [3:0] col,
+    output [3:0] row,
+    output co_phim,
+    output [3:0] hex_val
+);
+
+    wire w_tick_1000hz;
+    wire w_tick_100hz;
+    wire [3:0] w_col_data;
+
+    chia_xung u_chia_xung (
+        .clk         (clk),
+        .reset_n     (reset_n),
+        .tick_1000hz (w_tick_1000hz),
+        .tick_100hz  (w_tick_100hz),
+        .tick_1sec   ()
+    );
+
+    quetkeypad u_quetkeypad (
+        .clk         (clk),
+        .reset_n     (reset_n),
+        .tick_1000hz (w_tick_1000hz),
+        .col         (col),
+        .row         (row),
+        .col_data    (w_col_data),
+        .hex_val     (hex_val)
+    );
+
+    chongnhieu u_chongnhieu (
+        .clk         (clk),
+        .reset_n     (reset_n),
+        .tick_100    (w_tick_100hz),
+        .col_data    (w_col_data),
+        .co_phim     (co_phim)
+    );
+
+endmodule
+
+module chia_xung(
+    input clk,
+    input reset_n,
+    output tick_1000hz,
+    output tick_100hz,
+    output tick_1sec
+);
+    reg[15:0] count_1000hz;
+    reg[18:0] count_100hz;
+    reg[25:0] count_1sec;
+
+    always@(posedge clk or negedge reset_n) begin
+        if(!reset_n) begin
+            count_1000hz <= 16'd0;
+            count_100hz  <= 19'd0;
+            count_1sec   <= 26'd0;
+        end else begin
+            if(count_1000hz == 16'd49_999) count_1000hz <= 16'd0;
+            else count_1000hz <= count_1000hz + 16'd1;
+            
+            if(count_100hz == 19'd499_999) count_100hz <= 19'd0;
+            else count_100hz <= count_100hz + 19'd1;
+            
+            if(count_1sec == 26'd49_999_999) count_1sec <= 26'd0;
+            else count_1sec <= count_1sec + 26'd1;
+        end
+    end
+
+    assign tick_1000hz = (count_1000hz == 16'd49_999);
+    assign tick_100hz = (count_100hz == 19'd499_999);
+    assign tick_1sec = (count_1sec == 26'd49_999_999);
+endmodule
+
+module quetkeypad(
+    input clk,
+    input reset_n,
+    input tick_1000hz,
+    input [3:0] col,
+    output reg [3:0] row,
+    output [3:0] col_data,
+    output reg [3:0] hex_val
+);
+    assign col_data = col;
+    reg [1:0] quet_cnt;
+ 
+    always @(posedge clk or negedge reset_n) begin
+        if (!reset_n) quet_cnt <= 2'b00;
+        else if (tick_1000hz) begin
+            if (col == 4'b1111) quet_cnt <= quet_cnt + 1'b1;
+        end
+    end 
+ 
+    always @(*) begin
+        case(quet_cnt)
+            2'b00: row = 4'b1110;
+            2'b01: row = 4'b1101;
+            2'b10: row = 4'b1011;
+            2'b11: row = 4'b0111;
+            default: row = 4'b1111;
+        endcase
+    end
+
+    always @(*) begin
+        hex_val = 4'h0;
+        case (row)
+            4'b1110: begin
+                if      (!col[0]) hex_val = 4'h1;
+                else if (!col[1]) hex_val = 4'h2;
+                else if (!col[2]) hex_val = 4'h3;
+                else if (!col[3]) hex_val = 4'hA;
+            end
+            4'b1101: begin
+                if      (!col[0]) hex_val = 4'h4;
+                else if (!col[1]) hex_val = 4'h5;
+                else if (!col[2]) hex_val = 4'h6;
+                else if (!col[3]) hex_val = 4'hB;
+            end
+            4'b1011: begin
+                if      (!col[0]) hex_val = 4'h7;
+                else if (!col[1]) hex_val = 4'h8;
+                else if (!col[2]) hex_val = 4'h9;
+                else if (!col[3]) hex_val = 4'hC;
+            end
+            4'b0111: begin
+                if      (!col[0]) hex_val = 4'hE;
+                else if (!col[1]) hex_val = 4'h0;
+                else if (!col[2]) hex_val = 4'hF;
+                else if (!col[3]) hex_val = 4'hD;
+            end
+            default: hex_val = 4'h0;
+        endcase
+    end
+endmodule
+
+module chongnhieu (
+    input clk,
+    input reset_n,
+    input tick_100,
+    input [3:0] col_data,
+    output co_phim
+);
+    wire any_col_active = &col_data; 
+    reg ff1, ff2;
+    always @(posedge clk or negedge reset_n) begin
+        if (!reset_n) begin
+            ff1 <= 1'b1;
+            ff2 <= 1'b1;
+        end else begin
+            ff1 <= any_col_active;
+            ff2 <= ff1;
+        end
+    end
+
+    reg [1:0] shift_reg;
+    reg btn_stable;
+    
+    always @(posedge clk or negedge reset_n) begin
+        if (!reset_n) shift_reg <= 2'b11;
+        else if (tick_100) shift_reg <= {shift_reg[0], ff2};
+    end
+
+    always @(posedge clk or negedge reset_n) begin
+        if (!reset_n) btn_stable <= 1'b1;
+        else begin
+            if (shift_reg == 2'b00) btn_stable <= 1'b0;
+            else if (shift_reg == 2'b11) btn_stable <= 1'b1;
+        end
+    end
+
+    reg btn_stable_delay;
+    always @(posedge clk or negedge reset_n) begin
+        if (!reset_n) btn_stable_delay <= 1'b1;
+        else btn_stable_delay <= btn_stable;
+    end
+
+    assign co_phim = btn_stable_delay & ~btn_stable;
+endmodule
+
+
+// =======================================================
+// KHỐI 2: XỬ LÝ TRUNG TÂM (LOGIC CONTROL)
+// =======================================================
+module logic_top (
+    input clk,
+    input reset_n,
+    input [3:0] ma_phim,
+    input co_phim,
+    
+    output [2:0] state_code,
+    output door_open,
+    output alarm,
+    output [15:0] pass_16bit // Đã sửa: Khai báo thành output port
+);
+
+    wire shift_en;
+    wire backspace_en;
+    wire clear_buf;
+    wire cmd_compare;
+    wire cmd_update;
+    wire is_match;
+
+    shiftbuffer u_shift_buffer (
+        .clk(clk),
+        .reset_n(reset_n),
+        .ma_phim(ma_phim),
+        .co_phim(co_phim),
+        .shift_en(shift_en),
+        .backspace_en(backspace_en),
+        .clear_buf(clear_buf),
+        .pass_16bit(pass_16bit)
+    );
+
+    passdatapath u_pass_datapath (
+        .clk(clk),
+        .reset_n(reset_n),
+        .pass_16bit(pass_16bit),
+        .cmd_sosanh(cmd_compare),
+        .cmd_capnhat(cmd_update),
+        .trungkhop(is_match)
+    );
+
+    fsm_controller u_fsm_controller (
+        .clk(clk),
+        .reset_n(reset_n),
+        .ma_phim(ma_phim),
+        .co_phim(co_phim),
+        .is_match(is_match),
+        
+        .shift_en(shift_en),
+        .backspace_en(backspace_en),
+        .clear_buf(clear_buf),
+        .cmd_compare(cmd_compare),
+        .cmd_update(cmd_update),
+        
+        .state_code(state_code),
+        .door_open(door_open),
+        .alarm(alarm)
+    );
+endmodule 
+
+module shiftbuffer(
+    input clk,
+    input reset_n,
+    input [3:0] ma_phim,
+    input co_phim,
+    input shift_en,
+    input backspace_en,
+    input clear_buf,
+    output reg [15:0] pass_16bit
+);
+    always@(posedge clk or negedge reset_n) begin
+        if(!reset_n) pass_16bit <= 16'hFFFF;
+        else if(clear_buf) pass_16bit <= 16'hFFFF;
+        else if(backspace_en) pass_16bit <= {4'hF, pass_16bit[15:4]};
+        else if (shift_en) pass_16bit <= {pass_16bit[11:0], ma_phim};
+    end
+endmodule
+
+module passdatapath(
+    input clk,
+    input reset_n,
+    input [15:0] pass_16bit,
+    input cmd_sosanh,
+    input cmd_capnhat,
+    output wire trungkhop
+);
+    reg [15:0] stored_pass;
+    localparam mask = 16'h9554;
+    localparam matkhau_macdinh= 16'h0000;
+    
+    always@(posedge clk or negedge reset_n) begin
+        if (!reset_n) stored_pass <= matkhau_macdinh ^ mask;
+        else if (cmd_capnhat) stored_pass <= pass_16bit ^ mask;
+    end
+
+    assign trungkhop = ((pass_16bit ^ mask) == stored_pass);
+endmodule
+
+module fsm_controller ( 
+    input clk,
+    input reset_n,
+    input [3:0] ma_phim,
+    input co_phim,
+    input is_match,
+    output reg shift_en,
+    output reg backspace_en,
+    output reg clear_buf,
+    output reg cmd_compare,
+    output reg cmd_update,
+    output reg [2:0] state_code,
+    output reg door_open,
+    output reg alarm
+);
+    localparam S_IDLE        = 3'd0;
+    localparam S_INPUT       = 3'd1;
+    localparam S_COMPARE     = 3'd2;
+    localparam S_OPEN        = 3'd3;
+    localparam S_WRONG       = 3'd4;
+    localparam S_CHANGE_PASS = 3'd5;
+
+    reg [2:0] current_state, next_state;
+    reg [2:0] error_count;
+    reg [31:0] timer;
+
+    always @(posedge clk or negedge reset_n) begin
+        if (!reset_n) current_state <= S_IDLE;
+        else current_state <= next_state;
+    end
+
+    always @(*) begin
+        next_state = current_state;
+        case (current_state)
+            S_IDLE: begin
+                if (co_phim && (ma_phim <= 4'd9)) next_state = S_INPUT;
+            end
+            S_INPUT: begin
+                if (co_phim) begin
+                    if (ma_phim == 4'hA)      next_state = S_COMPARE;
+                    else if (ma_phim == 4'hC) next_state = S_IDLE;
+                end
+            end
+            S_COMPARE: begin
+                if (is_match) next_state = S_OPEN;
+                else next_state = S_WRONG;
+            end
+            S_OPEN: begin
+                if (timer >= 32'd250_000_000) next_state = S_IDLE;
+                else if (co_phim && ma_phim == 4'hD) next_state = S_CHANGE_PASS;
+            end
+            S_WRONG: begin
+                if (timer >= 32'd50_000_000) next_state = S_IDLE;
+            end
+            S_CHANGE_PASS: begin
+                if (co_phim && ma_phim == 4'hA) next_state = S_IDLE;
+            end
+            default: next_state = S_IDLE;
+        endcase
+    end
+
+    always @(posedge clk or negedge reset_n) begin
+        if (!reset_n) begin
+            error_count <= 2'd0;
+            timer <= 32'd0;
+            {shift_en, backspace_en, clear_buf, cmd_compare, cmd_update} <= 5'b0;
+            door_open <= 1'b0;          
+        end else begin
+            // Reset các cờ điều khiển mặc định mỗi chu kỳ
+            {shift_en, backspace_en, clear_buf, cmd_compare, cmd_update} <= 5'b0;
+            state_code <= current_state;
+
+            case (current_state)
+                S_IDLE: begin
+                    timer <= 0;
+                    door_open <= 0;
+                    if (co_phim && ma_phim <= 4'd9) shift_en <= 1;
+                    if (co_phim && ma_phim == 4'hC) clear_buf <= 1;
+                end
+                
+                S_INPUT: begin
+                    if (co_phim) begin
+                        if (ma_phim <= 4'd9)      shift_en <= 1;
+                        else if (ma_phim == 4'hB) backspace_en <= 1;
+                        else if (ma_phim == 4'hC) clear_buf <= 1;
+                    end
+                end
+                
+                S_COMPARE: begin
+                    cmd_compare <= 1;
+                end
+                
+                S_OPEN: begin
+                    door_open <= 1;
+                    error_count <= 0; 
+                    timer <= timer + 1;
+                    
+                    // Xóa buffer ngay trước khi hết thời gian và cửa đóng lại
+                    if (timer >= 32'd250_000_000 - 1) clear_buf <= 1; 
+                    
+                    // Nếu ấn D để đổi pass, xóa sạch buffer cũ để chuẩn bị nhập pass mới
+                    if (co_phim && ma_phim == 4'hD) clear_buf <= 1;
+                end
+                
+                S_WRONG: begin
+                    timer <= timer + 1;
+                    if (timer == 1) error_count <= error_count + 1;
+                    clear_buf <= 1; // Đảm bảo buffer luôn sạch sau khi sai pass
+                end
+                
+                S_CHANGE_PASS: begin
+                    if (co_phim) begin
+                        if (ma_phim <= 4'd9)      shift_en <= 1;
+                        else if (ma_phim == 4'hB) backspace_en <= 1; // Hỗ trợ xóa lùi khi nhập sai pass mới
+                        else if (ma_phim == 4'hC) clear_buf <= 1;    // Hỗ trợ xóa toàn bộ pass mới
+                        else if (ma_phim == 4'hA) cmd_update <= 1;   // <--- Lệnh lưu mật khẩu mới phải nằm ở đây!
+                    end
+                end
+            endcase
+        end
+    end
+
+    always @(*) alarm = (error_count >= 2'd3);
+endmodule
+
+
+// =======================================================
+// KHỐI 3: XỬ LÝ NGÕ RA (OUTPUT & DISPLAY)
+// =======================================================
+module output_top (
+    input  wire        clk_50M,
+    input  wire        reset_n,    // Đã sửa: Thêm reset_n
+    input  wire [15:0] pass_16bit,
+    input  wire [2:0]  state_code,
+    input  wire        door_open,
+    input  wire        alarm,
+    
+    output wire [6:0]  HEX3,
+    output wire [6:0]  HEX2,
+    output wire [6:0]  HEX1,
+    output wire [6:0]  HEX0,
+    output wire        LEDG,
+    output wire        LEDR,
+    output wire        BUZZER,
+    
+    output wire [7:0]  LCD_DATA,
+    output wire        LCD_RS,
+    output wire        LCD_RW,
+    output wire        LCD_EN,
+    output wire        LCD_ON,   
+    output wire        LCD_BLON
+);
+
+    led_7_doan u_led_7_doan (
+        .pass_16bit (pass_16bit),
+        .HEX3       (HEX3),
+        .HEX2       (HEX2),
+        .HEX1       (HEX1),
+        .HEX0       (HEX0)
+    );
+
+    warning_buzzer u_warning_buzzer (
+        .clk_50M    (clk_50M),
+        .reset_n    (reset_n),     // Đã sửa: Cấp tín hiệu reset_n
+        .mo_cua_ok  (door_open), 
+        .sai_pass   (alarm),     
+        .LEDG       (LEDG),
+        .LEDR       (LEDR),
+        .BUZZER     (BUZZER)
+    );
+
+    lcd_controller u_lcd_controller (
+        .clk_50M    (clk_50M),
+        .reset_n    (reset_n),     // Đã sửa: Cấp tín hiệu reset_n
+        .state_code (state_code),
+        .LCD_DATA   (LCD_DATA),
+        .LCD_RS     (LCD_RS),
+        .LCD_RW     (LCD_RW),
+        .LCD_EN     (LCD_EN),
+        .LCD_ON	    (LCD_ON), 
+		.LCD_BLON	(LCD_BLON)
+    );
+
+endmodule
+
+module led_7_doan (
+    input  wire [15:0] pass_16bit, 
+    output reg  [6:0]  HEX3,       
+    output reg  [6:0]  HEX2,         
+    output reg  [6:0]  HEX1,       
+    output reg  [6:0]  HEX0        
+);
+    function [6:0] decode_7seg;
+        input [3:0] bcd;
+        begin
+            case (bcd)
+                4'h0: decode_7seg = 7'b1000000;
+                4'h1: decode_7seg = 7'b1111001;
+                4'h2: decode_7seg = 7'b0100100;
+                4'h3: decode_7seg = 7'b0110000;
+                4'h4: decode_7seg = 7'b0011001;
+                4'h5: decode_7seg = 7'b0010010;
+                4'h6: decode_7seg = 7'b0000010;
+                4'h7: decode_7seg = 7'b1111000;
+                4'h8: decode_7seg = 7'b0000000;
+                4'h9: decode_7seg = 7'b0010000;
+                4'hF: decode_7seg = 7'b1111111; 
+                default: decode_7seg = 7'b1111111;
+            endcase
+        end
+    endfunction
+
+    always @(*) begin
+        HEX3 = decode_7seg(pass_16bit[15:12]);
+        HEX2 = decode_7seg(pass_16bit[11:8]);
+        HEX1 = decode_7seg(pass_16bit[7:4]);
+        HEX0 = decode_7seg(pass_16bit[3:0]);
+    end
+endmodule
+
+module warning_buzzer (
+    input  wire clk_50M,
+    input  wire reset_n,       // Đã sửa: Thêm reset_n
+    input  wire mo_cua_ok, 
+    input  wire sai_pass,  
+    output reg  LEDG,      
+    output reg  LEDR,    
+    output reg  BUZZER    
+);
+    reg [23:0] counter;
+    reg blink_sig;      
+    
+    always @(posedge clk_50M or negedge reset_n) begin
+        if (!reset_n) begin
+            counter <= 24'd0;
+            blink_sig <= 1'b0;
+        end else if (counter >= 24'd4_499_999) begin
+            counter <= 24'd0;
+            blink_sig <= ~blink_sig;
+        end else begin
+            counter <= counter + 1'b1;
+        end
+    end
+    
+    always @(*) begin
+        LEDG = 1'b0;
+        LEDR = 1'b0;
+        BUZZER = 1'b0;
+        if (mo_cua_ok) begin
+            LEDG = 1'b1;  
+        end 
+        else if (sai_pass) begin
+            LEDR = blink_sig; 
+            BUZZER = blink_sig;
+        end
+    end
+endmodule
+
+module lcd_controller (
+    input  wire clk_50M,
+    input  wire reset_n,
+    input  wire [2:0] state_code, 
+    output reg  [7:0] LCD_DATA,
+    output reg  LCD_RS,
+    output wire LCD_RW,
+    output reg  LCD_EN,
+    output wire	LCD_ON,   
+    output wire LCD_BLON
+);
+    assign LCD_ON   = 1'b1;
+    assign LCD_BLON = 1'b1;
+    assign LCD_RW = 1'b0; 
+
+    // Trạng thái hệ thống
+    parameter S_IDLE        = 3'd0;
+    parameter S_INPUT       = 3'd1;
+    parameter S_COMPARE     = 3'd2;
+    parameter S_OPEN        = 3'd3;
+    parameter S_WRONG       = 3'd4; 
+    parameter S_CHANGE_PASS = 3'd5;
+
+    reg [7:0] lcd_line_1 [0:15];
+    reg [7:0] lcd_line_2 [0:15];
+    reg [127:0] str_1;
+    reg [127:0] str_2;
+    integer i;
+
+    // Logic xử lý chuỗi hiển thị
+    always @(*) begin
+        case (state_code)
+            S_IDLE: begin
+                str_1 = "SYSTEM LOCKED   ";
+                str_2 = "INPUT PASSWORD  ";
+            end
+            S_INPUT: begin
+                str_1 = "ENTER PASSWORD: ";
+                str_2 = "**** "; 
+            end
+            S_COMPARE: begin
+                str_1 = "CHECKING...     ";
+                str_2 = "PLEASE WAIT     ";
+            end
+            S_OPEN: begin
+                str_1 = "DOOR OPENED !   ";
+                str_2 = "ACCESS GRANTED  ";
+            end
+            S_WRONG: begin
+                str_1 = "WRONG PASS !    ";
+                str_2 = "PRESS C TO RETRY"; 
+            end
+            S_CHANGE_PASS: begin
+                str_1 = "ENTER NEW PASS: ";
+                str_2 = "**** ";
+            end
+            default: begin
+                str_1 = "                ";
+                str_2 = "                ";
+            end
+        endcase
+
+        for (i = 0; i < 16; i = i + 1) begin
+            lcd_line_1[i] = str_1[127 - (i * 8) -: 8];
+            lcd_line_2[i] = str_2[127 - (i * 8) -: 8];
+        end
+    end
+
+    // --- FSM ĐIỀU KHIỂN LCD ---
+    parameter ST_POWER_ON = 3'd0;
+    parameter ST_INIT     = 3'd1; 
+    parameter ST_IDLE     = 3'd2;
+    parameter ST_SETUP    = 3'd3; 
+    parameter ST_PULSE    = 3'd4;
+    parameter ST_HOLD     = 3'd5; 
+    parameter ST_DELAY    = 3'd6; 
+
+    reg [2:0]  lcd_state;
+    reg [22:0] delay_cnt;  
+    reg [5:0]  char_idx;       
+    reg [3:0]  init_step;  
+    reg        is_init_mode;
+    reg [2:0]  pre_state_code;
+    reg        update_req;
+
+    // Phát hiện thay đổi trạng thái
+    always @(posedge clk_50M or negedge reset_n) begin
+        if (!reset_n) begin
+            pre_state_code <= 3'd7;
+            update_req <= 1'b0;
+        end else begin
+            pre_state_code <= state_code;
+            if (state_code != pre_state_code) 
+                update_req <= 1'b1;
+            else if (lcd_state == ST_IDLE && char_idx == 6'd33) 
+                update_req <= 1'b0;
+        end
+    end
+
+    always @(posedge clk_50M or negedge reset_n) begin
+        if (!reset_n) begin
+            LCD_EN <= 1'b0;
+            LCD_RS <= 1'b0;
+            LCD_DATA <= 8'h00;
+            lcd_state <= ST_POWER_ON;
+            char_idx <= 6'd0;
+            delay_cnt <= 23'd0;
+            init_step <= 4'd0;
+            is_init_mode <= 1'b1;
+        end else begin
+            case (lcd_state)
+                ST_POWER_ON: begin
+                    if (delay_cnt >= 23'd5_000_000) begin 
+                        delay_cnt <= 23'd0;
+                        lcd_state <= ST_INIT;
+                    end else delay_cnt <= delay_cnt + 1'b1;
+                end
+
+                ST_INIT: begin
+                    is_init_mode <= 1'b1;
+                    LCD_RS <= 1'b0; 
+                    case (init_step)
+                        4'd0: LCD_DATA <= 8'h38; // Lần 1
+                        4'd1: LCD_DATA <= 8'h38; // Lần 2
+                        4'd2: LCD_DATA <= 8'h38; // Lần 3
+                        4'd3: LCD_DATA <= 8'h38; // Cấu hình 8-bit
+                        4'd4: LCD_DATA <= 8'h0C; // Display ON
+                        4'd5: LCD_DATA <= 8'h01; // Clear
+                        4'd6: LCD_DATA <= 8'h06; // Entry Mode
+                        default: LCD_DATA <= 8'h00;
+                    endcase
+                    lcd_state <= ST_PULSE;
+                end
+
+                ST_IDLE: begin
+                    is_init_mode <= 1'b0;
+                    if (update_req) begin
+                        char_idx <= 6'd0;
+                        lcd_state <= ST_SETUP;
+                    end
+                end
+
+                ST_SETUP: begin 
+                    if (char_idx < 16) begin
+                        LCD_RS <= 1'b1;
+                        LCD_DATA <= lcd_line_1[char_idx];
+                    end else if (char_idx == 16) begin
+                        LCD_RS <= 1'b0;
+                        LCD_DATA <= 8'hC0; 
+                    end else if (char_idx < 33) begin
+                        LCD_RS <= 1'b1;
+                        LCD_DATA <= lcd_line_2[char_idx - 17];
+                    end
+                    lcd_state <= ST_PULSE;
+                end
+
+                ST_PULSE: begin 
+                    LCD_EN <= 1'b1;
+                    if (delay_cnt >= 23'd100) begin 
+                        delay_cnt <= 23'd0;
+                        lcd_state <= ST_HOLD;
+                    end else delay_cnt <= delay_cnt + 1'b1;
+                end
+
+                ST_HOLD: begin 
+                    LCD_EN <= 1'b0;
+                    if (delay_cnt >= 23'd50) begin 
+                        delay_cnt <= 23'd0;
+                        lcd_state <= ST_DELAY;
+                    end else delay_cnt <= delay_cnt + 1'b1;
+                end
+
+                ST_DELAY: begin 
+                    // SỬA ĐỔI TẠI ĐÂY:
+                    if (is_init_mode) begin
+                        // Tăng trễ lên 5ms (250,000 xung) cho TẤT CẢ các bước khởi tạo
+                        if (delay_cnt >= 23'd250_000) begin 
+                            delay_cnt <= 23'd0;
+                            if (init_step < 4'd6) begin
+                                init_step <= init_step + 1'b1;
+                                lcd_state <= ST_INIT;
+                            end else begin
+                                lcd_state <= ST_IDLE;
+                            end
+                        end else delay_cnt <= delay_cnt + 1'b1;
+                    end 
+                    else begin
+                        // Chế độ chạy bình thường (ghi text)
+                        if (char_idx == 16) begin // Lệnh nhảy dòng cần 2ms
+                            if (delay_cnt >= 23'd100_000) begin
+                                delay_cnt <= 23'd0;
+                                char_idx  <= char_idx + 1'b1;
+                                lcd_state <= ST_SETUP;
+                            end else delay_cnt <= delay_cnt + 1'b1;
+                        end else begin
+                            if (delay_cnt >= 23'd2500) begin // 50us cho ký tự
+                                delay_cnt <= 23'd0;
+                                if (char_idx < 6'd32) begin
+                                    char_idx <= char_idx + 1'b1;
+                                    lcd_state <= ST_SETUP;
+                                end else begin
+                                    char_idx <= 6'd33;
+                                    lcd_state <= ST_IDLE;
+                                end
+                            end else delay_cnt <= delay_cnt + 1'b1;
+                        end
+                    end
+                end
+                
+                default: lcd_state <= ST_POWER_ON;
+            endcase
+        end
+    end
+endmodule
