@@ -1,4 +1,3 @@
-# FPGA-Based-Electronic-Combination-Lock-System---Verilog-
 # FPGA-Based Electronic Combination Lock System (Altera DE2)
 
 This repository contains the design and hardware implementation of a **Secure Electronic Combination Lock System (4-digit PIN)** deployed on the **Altera DE2 (Cyclone II FPGA)** development kit. Built entirely from scratch using **Verilog HDL**, the system features a hardware-centric, multi-layered architectural design leveraging Finite State Machines (FSM) and high-speed parallel processing.
