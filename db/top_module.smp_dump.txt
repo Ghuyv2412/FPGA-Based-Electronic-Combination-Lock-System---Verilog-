@@ -1,0 +1,19 @@
+
+State Machine - |top_module|output_top:u_output|lcd_controller:u_lcd_controller|lcd_state
+Name lcd_state.ST_DELAY lcd_state.ST_HOLD lcd_state.ST_PULSE lcd_state.ST_SETUP lcd_state.ST_IDLE lcd_state.ST_INIT lcd_state.ST_POWER_ON 
+lcd_state.ST_POWER_ON 0 0 0 0 0 0 0 
+lcd_state.ST_INIT 0 0 0 0 0 1 1 
+lcd_state.ST_IDLE 0 0 0 0 1 0 1 
+lcd_state.ST_SETUP 0 0 0 1 0 0 1 
+lcd_state.ST_PULSE 0 0 1 0 0 0 1 
+lcd_state.ST_HOLD 0 1 0 0 0 0 1 
+lcd_state.ST_DELAY 1 0 0 0 0 0 1 
+
+State Machine - |top_module|logic_top:u_logic|fsm_controller:u_fsm_controller|current_state
+Name current_state.S_CHANGE_PASS current_state.S_WRONG current_state.S_OPEN current_state.S_COMPARE current_state.S_INPUT current_state.S_IDLE 
+current_state.S_IDLE 0 0 0 0 0 0 
+current_state.S_INPUT 0 0 0 0 1 1 
+current_state.S_COMPARE 0 0 0 1 0 1 
+current_state.S_OPEN 0 0 1 0 0 1 
+current_state.S_WRONG 0 1 0 0 0 1 
+current_state.S_CHANGE_PASS 1 0 0 0 0 1 
